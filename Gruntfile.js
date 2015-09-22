@@ -192,33 +192,20 @@ module.exports = function(grunt) {
         },
 
         maxcdn: {
-          purgeCache: {
-            options: {
-              companyAlias:   '<%= maxcdn.options.companyAlias %>',
-              consumerKey:    '<%= maxcdn.options.consumerKey %>',
-              consumerSecret: '<%= maxcdn.options.consumerSecret %>',
-              zone_id:        '<%= maxcdn.options.zoneId %>',
-              method:         'delete'
+            purgeCache: {
+                options: {
+                    companyAlias: '<%= maxcdn.options.companyAlias %>',
+                    consumerKey: '<%= maxcdn.options.consumerKey %>',
+                    consumerSecret: '<%= maxcdn.options.consumerSecret %>',
+                    zone_id: '<%= maxcdn.options.zoneId %>',
+                    method: 'delete'
+                },
+                files: [
+                    {
+                        dest: '/supportkit.min.js'
+                    }
+                ],
             },
-            files: [
-              { dest: '/supportkit.min.js' }
-            ],
-          },
-        },
-
-        release: {
-            options: {
-                npm: true,
-                bump: false,
-                commit: true,
-                push: false,
-                remote: 'https://github.com/supportkit/supportkit-js.git',
-                github: {
-                    repo: 'supportkit/supportkit-js', //put your user/repo here
-                    accessTokenVar: 'GITHUB_ACCESS_TOKEN',
-                    releaseNotes: 'release_notes'
-                }
-            }
         },
 
         exec: {
@@ -229,37 +216,28 @@ module.exports = function(grunt) {
                     ].join(' && ');
                 }
             },
-            cleanRelease: {
+            addDist: {
                 cmd: function() {
                     return [
-                        'git checkout master',
-                        'git branch -D r/' + this.option('globalVersion'),
-                        'git tag -d ' + this.option('globalVersion')
-                    ].join(' && ');
-                }
-            },
-            commitFiles: {
-                cmd: function() {
-                    return [
-                        'git commit -am "Release v' + this.option('globalVersion') + ' [ci skip]"'
+                        'git add --force dist/supportkit.js',
+                        'git add --force dist/supportkit.min.js',
+                        'git commit -am "Release ' + this.option('globalVersion') + '"'
                     ].join(' && ');
                 }
             },
             push: {
                 cmd: function() {
                     return [
-                        'git push origin master',
-                        'git checkout integration',
-                        'git merge master --no-ff',
-                        'git push origin integration'
+                        'git push origin r/' + this.option('globalVersion'),
+                        'git tag ' + this.option('globalVersion'),
+                        'git push origin ' + this.option('globalVersion')
                     ].join(' && ');
                 }
             },
-            addDist: {
+            npmPublish: {
                 cmd: function() {
                     return [
-                        'git add --force dist/supportkit.js',
-                        'git add --force dist/supportkit.min.js'
+                        'npm publish'
                     ].join(' && ');
                 }
             }
@@ -278,7 +256,7 @@ module.exports = function(grunt) {
         if (gitInfo.status.porcelain || gitInfo.local.branch.current.name !== 'master') {
             grunt.log.error('Error. Please make sure you have master checked out and there are no working changes.');
             grunt.log.error('Git Status:', '\n' + gitInfo.status.porcelain);
-            grunt.log.error('Git Branch: ', '\n ' + gitInfo.local.branch.current.name);
+            grunt.log.error('Git Branch:', '\n' + gitInfo.local.branch.current.name);
             return false;
         }
 
@@ -288,52 +266,21 @@ module.exports = function(grunt) {
         }
     });
 
-    grunt.registerTask('versionBump', function() {
-        var semver = require('semver');
-        var VERSION_REGEXP = /(\bversion[\'\"]?\s*[:=]\s*[\'\"])([\da-z\.-]+)([\'\"])/i;
-        var files = ['package.json', 'bower.json', 'src/js/main.js'];
-        var fullVersion = grunt.option('version');
-        var versionType = grunt.option('versionType');
-        var globalVersion;
+    grunt.registerTask('publish', 'Publishes a build to github and NPM', function() {
+        var release_notes;
 
-        files.forEach(function(file) {
-            var version = null;
-            var content = grunt.file.read(file).replace(VERSION_REGEXP, function(match, prefix, parsedVersion, suffix) {
-                version = fullVersion || semver.inc(parsedVersion, versionType);
-                return prefix + version + suffix;
-            });
-
-            if (!globalVersion) {
-                globalVersion = version;
-            } else if (globalVersion !== version) {
-                grunt.warn('Bumping multiple files with different versions!');
-            }
-
-            grunt.file.write(file, content);
-            grunt.log.ok('Version bumped to ' + version + (files.length > 1 ? ' (in ' + file + ')' : ''));
-        });
-
-        grunt.option('globalVersion', globalVersion);
-        grunt.config.set('globalVersion', globalVersion);
+        grunt.option('RELEASE_VERSION', grunt.option('globalVersion'));
+        grunt.option('GITHUB_REPO', 'supportkit/supportkit-js');
 
         try {
-            grunt.file.read('release_notes/v' + globalVersion + '.md');
+            release_notes = grunt.file.read('release_notes/v' + grunt.option('globalVersion') + '.md');
+            grunt.option('RELEASE_NOTES', release_notes);
         }
         catch (err) {
-            grunt.log.error('Release notes not found.');
-            grunt.log.error('Please ensure release notes exist in the release_notes folder. (v' + globalVersion + '.md)');
-            return false;
-        }
-    });
-
-    grunt.registerTask('publish', 'Publishes a build to github and NPM, accepting a version as argument', function(version) {
-        if (!version || ['major', 'minor', 'patch'].indexOf(version) > -1) {
-            grunt.option('versionType', version || 'patch');
-        } else {
-            grunt.option('version', version);
+            grunt.log.warn('No release notes supplied for this version.');
         }
 
-        grunt.task.run('branchCheck', 'publish:prepare', 'publish:release', 'publish:cleanup');
+        grunt.task.run('branchCheck', 'publish:prepare', 'publish:release');
     });
 
     grunt.registerTask('loadConfig', 'Loads config from config folder (uses default if none present', function() {
@@ -358,16 +305,15 @@ module.exports = function(grunt) {
     grunt.registerTask('build', ['clean', 'browserify', 'uglify']);
     grunt.registerTask('devbuild', ['clean', 'browserify', 'loadConfig', 'replace']);
     grunt.registerTask('devbuild:min', ['clean', 'browserify', 'loadConfig', 'setMinMode', 'replace', 'uglify']);
-    grunt.registerTask('deploy', ['build', 'awsconfig', 'maxcdnconfig','s3:js', 'maxcdn']);
+    grunt.registerTask('deploy', ['build', 'awsconfig', 'maxcdnconfig', 's3:js', 'maxcdn']);
     grunt.registerTask('run', ['runlog', 'devbuild', 'concurrent:dev']);
     grunt.registerTask('run:min', ['runlog', 'devbuild:min', 'concurrent:min']);
     grunt.registerTask('test', ['karma:unit']);
     grunt.registerTask('test:ci', ['karma:ci']);
     grunt.registerTask('default', ['run']);
 
-    grunt.registerTask('publish:prepare', ['versionBump', 'exec:commitFiles', 'exec:createRelease', 'build', 'exec:addDist']);
-    grunt.registerTask('publish:release', ['release']);
-    grunt.registerTask('publish:cleanup', ['exec:cleanRelease', 'exec:push']);
+    grunt.registerTask('publish:prepare', ['exec:commitFiles', 'exec:createRelease', 'build', 'exec:addDist']);
+    grunt.registerTask('publish:release', ['exec:push', 'exec:npmPublish', 'githubRelease']);
 
     grunt.registerTask('branchCheck', 'Checks that you are publishing from Master branch with no working changes', ['gitinfo', 'checkBranchStatus']);
 
